@@ -1,10 +1,116 @@
 from time import sleep
 from tokens import TeleBotToken
+from tokens import myApiKey
+from tokens import sender
+from tokens import senderPublicKey
+from tokens import dApp
 import requests
 import telebot
-import os
 
 # from tokens import TeleBotToken
+
+def sign(nodeUrl,myApiKey,sender,senderPublicKey,dApp):
+    nodeUrl=nodeUrl
+    dApp=dApp
+    senderPublicKey=senderPublicKey
+    myApiKey=myApiKey 
+    sender=sender
+    amount=1000000000
+    # assetId='6XtHjpXbs9RRJP2Sr9GUyVqzACcby9TkThHXnjVC5CDJ' #USDC
+    assetId='34N9YcEETLWn93qYQ64EsP1x89tSruJU44RrEMSXXEPJ' #USDT
+
+    # Step 1 (Optional). Calculate Fee
+
+    headers = {
+        # Already added when you pass json=
+        # 'Content-Type': 'application/json',
+    }
+    json_data = {
+        'type': 16,
+        'senderPublicKey': senderPublicKey,
+        'call': {
+            'function': 'withdraw',
+            'args': [
+                    {
+            "type": "string",
+            "value": assetId
+                    },
+                    {
+            "type": "integer",
+            "value": amount
+                    }
+
+            ],
+        },
+        'payment': [],
+        'dApp': dApp,
+    }
+
+    response = requests.post(nodeUrl+'/transactions/calculateFee', headers=headers, json=json_data)
+
+    feeAmount = response.json()['feeAmount']
+
+    # Step 2. Sign Transaction
+
+    headers = {
+        'X-API-Key': myApiKey,
+        # Already added when you pass json=
+        # 'Content-Type': 'application/json',
+    }
+    json_data = {
+        'type': 16,
+        'sender': sender,
+        'call': {
+            'function': 'withdraw',
+            'args': [
+                    {
+            "type": "string",
+            "value": assetId
+                    },
+                    {
+            "type": "integer",
+            "value": amount
+                    }
+
+            ],
+        },
+        'payment': [],
+        'dApp': dApp,
+        'feeAssetId': None,
+        'fee': feeAmount,
+    }
+
+    response = requests.post(nodeUrl+'/transactions/sign', headers=headers, json=json_data)
+
+    signed = response.json()
+
+    # Step 3 (optional). Pre-validate Transaction
+
+    headers = {
+        # Already added when you pass json= but not when you pass data=
+        # 'Content-Type': 'application/json',
+    }
+    json_data = signed
+
+    response = requests.post(nodeUrl+'/debug/validate', headers=headers, json=json_data)
+
+    if (response.json()['valid']==False):
+        print(list(response.json()['error'].split(","))[1])
+        return False
+
+    # Step 4. Broadcast Transaction
+
+    headers = {
+        # Already added when you pass json= but not when you pass data=
+        # 'Content-Type': 'application/json',
+    }
+    json_data = signed
+
+    response = requests.post(nodeUrl+'/transactions/broadcast', headers=headers, json=json_data)
+
+    id = response.json()['id']
+
+    return id
 
 def monitor():
     resp = requests.get("https://api.vires.finance/state")
@@ -44,7 +150,7 @@ def greet(message):
     bot.reply_to(message, "Hola. Este bot tiene 3 comandos utiles:")
     bot.reply_to(message, "/chatid empleado para indentificar el ID del chat")
     bot.reply_to(message, "/saldos para mostrar los saldos de libre disponibilidad de USDC y USDT de Vires")
-    bot.reply_to(message, "/monitor para activar el monitor continuo de saldos de USDC y USDT de Vires. Informara continuamente cuando haya cambios en la disponibilidad")
+    bot.reply_to(message, "/radar para activar el monitor continuo de saldos de USDC y USDT de Vires. Informara continuamente cuando haya cambios en la disponibilidad")
 
 @bot.message_handler(commands=['chatid'])
 def chatid(message):
@@ -57,6 +163,27 @@ def hola(message):
 @bot.message_handler(commands=['saldos'])
 def saldos(message):
 
+    response = monitor()
+
+    if response =="error":
+        print("Error Server - FIN")
+        return
+
+    if response[0] < 0:
+            USDT = "sin"
+    else:
+            USDT = "con"
+
+    if response[1] < 0:
+            USDC = "sin"
+    else:
+            USDC = "con"
+
+    bot.send_message(message.chat.id,"Saldo USDT -> USD " + str(formatNumber(response[0],2,True)) + " " + USDT + " saldo")
+    bot.send_message(message.chat.id,"Saldo USDC -> USD " + str(formatNumber(response[1],2,True)) + " " + USDC + " saldo")
+
+@bot.message_handler(commands=['radar'])
+def radar(message):
     bot.send_message(message.chat.id, "Iniciando...")
 
     USDT = ""
@@ -65,6 +192,8 @@ def saldos(message):
     estado_USDC = "-"
     
     while True:
+
+        sleep(3)
 
         response = monitor()
 
@@ -89,10 +218,10 @@ def saldos(message):
             bot.send_message(message.chat.id,"Saldo USDT -> USD " + str(formatNumber(response[0],2,True)) + " " + USDT + " saldo")
             bot.send_message(message.chat.id,"Saldo USDC -> USD " + str(formatNumber(response[1],2,True)) + " " + USDC + " saldo")
 
+        if USDT=="con":
+            res=sign(nodeUrl, myApiKey, sender, senderPublicKey, dApp)
+            if res!=False:
+                bot.send_message(message.chat.id,"Retiro USDT Exitoso ID " + str(res))
+                break
+        
 bot.polling(none_stop=True)
-
-
-
-
-
-
